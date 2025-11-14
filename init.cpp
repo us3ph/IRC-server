@@ -1,0 +1,150 @@
+#include "init.hpp"
+
+void ft_init(IrcServer& irc, char **argv)
+{
+    irc.setport(atoi(argv[1]));
+    irc.setsocket(socket(AF_INET, SOCK_STREAM,0));
+    if(irc.getsocket_fd() < 0)
+    {
+        close(irc.getsocket_fd());
+        throw std::runtime_error("socket failed");
+    }
+    if(fcntl(irc.getsocket_fd(), F_SETFL, O_NONBLOCK) < 0)
+    {
+        close(irc.getsocket_fd());
+        throw std::runtime_error("fcntl failed");
+    }
+    int opt = 1;
+    if (setsockopt(irc.getsocket_fd(), SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
+    {
+        close(irc.getsocket_fd());
+        throw std::runtime_error("setsockopt failed");
+    }
+}
+
+
+void bind_and_listen_accept(IrcServer& irc)
+{
+    sockaddr_in address;
+    memset(&address, 0, sizeof(address));
+    address.sin_port = htons(irc.getport());
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+
+    if (bind(irc.getsocket_fd(), (struct sockaddr *)&address,sizeof(address))< 0)
+        throw std::runtime_error("bind failed");
+    if(listen(irc.getsocket_fd(), SOMAXCONN) < 0)
+        throw std::runtime_error("listne failed");
+
+    std::cout << "serveur listening on port " << irc.getport() << "\n";
+}
+
+int accept_new_client(IrcServer& irc)
+{
+    sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
+    int client_fd = accept(irc.getsocket_fd(),(struct sockaddr *)&client_addr,&client_len);
+    if (client_fd < 0)
+    {
+        return -1;
+    }
+
+    std::cout << "New client connected: " << client_fd - 3 << "\n";
+    irc.add_client(client_fd);
+    return client_fd;
+}
+
+volatile sig_atomic_t g_running = 1;
+
+void handle_sigint(int signum)
+{
+    (void)signum;
+    g_running = 0;
+}
+
+void run_server_loop(IrcServer& irc)
+{
+
+    signal(SIGINT, handle_sigint);
+
+    std::vector<pollfd> fds;
+    cmd cmd;
+    pollfd server_poll;
+    server_poll.fd = irc.getsocket_fd();
+    server_poll.events = POLLIN;
+    server_poll.revents = 0;
+    fds.push_back(server_poll);
+
+    while (g_running)
+    {
+        int activity = poll(fds.data(), fds.size(), -1);
+        if (activity < 0)
+        {
+            if (errno == EINTR)
+                continue;
+            throw std::runtime_error("poll failed");
+        }
+        
+        for (size_t i = 0; i < fds.size(); i++)
+        {
+            if (fds[i].revents & POLLIN)
+            {
+                if (fds[i].fd == irc.getsocket_fd())
+                {
+                    int client_fd = accept_new_client(irc);
+                    if(client_fd != -1)
+                    {
+                        if(fcntl(irc.getsocket_fd(), F_SETFL, O_NONBLOCK) < 0 ){
+                            throw std::runtime_error("fcntl failed");
+                        }
+                        pollfd client_poll;
+                        client_poll.fd = client_fd;
+                        client_poll.events = POLLIN;
+                        client_poll.revents = 0;
+                        fds.push_back(client_poll);
+                    }
+                    if(client_fd == -1)
+                    {
+                        std::cout << "failed to create a client " << std::endl;
+                    }
+                }
+                else
+                {
+                    char buffer[8042];
+                    memset(buffer, 0, sizeof(buffer));
+                    int bytes_received = recv(fds[i].fd, buffer, sizeof(buffer), 0);
+                    if (bytes_received <= 0)
+                    {
+                        IrcClient* client = irc.getClient(fds[i].fd);
+                        if(client) 
+                            irc.removeClientFromAllChannels(client);
+                        close(fds[i].fd);
+                        irc.remove_client(fds[i].fd);
+                        fds.erase(fds.begin() + i);
+                        i--;
+                    }
+                    else
+                    {
+                        IrcClient* client = irc.getClient(fds[i].fd);
+                        client->Buffering(std::string(buffer));
+                        std::string line;
+                        while(client->ExtractLine(line))
+                        {
+                            cmd = ft_parse(line);
+                            HandleCommand(*client, cmd, irc, irc.getBot(), irc.getFileTransfer());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for (size_t i = 0; i < fds.size(); i++)
+    {
+        if (fds[i].fd >= 0)
+            close(fds[i].fd);
+    }
+    fds.clear();
+    throw std::runtime_error("Program quited correctly");
+}
+
+
