@@ -126,20 +126,6 @@ irssi -c localhost -p 6667
 
 ---
 
-## 🖼 Demo (Add your GIFs here)
-
-```markdown
-![Demo](./assets/demo.gif)
-```
-
-Or a clickable preview:
-
-```markdown
-[![Watch Demo](assets/preview.png)](https://youtu.be/YOUR_VIDEO)
-```
-
----
-
 ## 🧹 Cleanup  
 ```bash
 make clean     # remove objects  
@@ -150,10 +136,11 @@ make re        # rebuild
 ---
 
 ## 👨‍💻 Authors  
-| Name | GitHub | 1337 Login |
-|------|--------|-----------|
-| Your Name | [@yourgithub](https://github.com/yourgithub) | your_login |
-| Teammate | [@teammate](https://github.com/teammate) | their_login |
+[@bronIIcode](https://github.com/us3ph)
+
+[@youssef](https://github.com/REGRAGUII)
+
+[@hamza](https://github.com/TemsamaniHamza)
 
 ---
 
